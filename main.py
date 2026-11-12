@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from sqlite3 import Error as DatabaseError
 
-from PySide6.QtCore import QSettings, QSignalBlocker, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QDate, QSettings, QSignalBlocker, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -63,7 +63,7 @@ class DiaryWindow(QMainWindow):
             self.remove_button,
         ):
             layout.addWidget(widget)
-        tabs = QTabWidget(self)
+        self.tabs = QTabWidget(self)
         calendar_panel = QWidget()
         calendar_layout = QVBoxLayout(calendar_panel)
         self.calendar = QCalendarWidget()
@@ -78,9 +78,9 @@ class DiaryWindow(QMainWindow):
         export_report = QPushButton("Сохранить таблицу за открытый месяц")
         export_report.clicked.connect(self.export_month)
         calendar_layout.addWidget(export_report)
-        tabs.addTab(calendar_panel, "Дневник")
-        tabs.addTab(panel, "Напоминания")
-        self.setCentralWidget(tabs)
+        self.tabs.addTab(calendar_panel, "Дневник")
+        self.tabs.addTab(panel, "Напоминания")
+        self.setCentralWidget(self.tabs)
         self.refresh_schedule()
 
         if sys.platform == "win32" and allow_autostart:
@@ -96,6 +96,7 @@ class DiaryWindow(QMainWindow):
         self.setWindowIcon(icon)
         self.tray = QSystemTrayIcon(icon, self)
         self.tray.setToolTip(self.windowTitle())
+        self.tray.activated.connect(self.on_tray_activated)
 
         self.reminder = QMessageBox(self)
         self.reminder.setWindowTitle("Напоминание")
@@ -219,7 +220,15 @@ class DiaryWindow(QMainWindow):
         else:
             super().closeEvent(event)
 
+    def on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.open_window()
+
     def open_window(self) -> None:
+        today = QDate.currentDate()
+        self.calendar.setSelectedDate(today)
+        self.calendar.setCurrentPage(today.year(), today.month())
+        self.tabs.setCurrentIndex(0)
         self.showNormal()
         self.raise_()
         self.activateWindow()
@@ -257,7 +266,7 @@ def main() -> int:
         ):
             window.change_autostart(True)
     if not args.autostart or not window.tray.isVisible():
-        window.show()
+        window.open_window()
     return app.exec()
 
 
