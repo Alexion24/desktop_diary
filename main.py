@@ -7,7 +7,9 @@ from PySide6.QtCore import QSettings, QSignalBlocker, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QCalendarWidget,
     QCheckBox,
+    QFileDialog,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -16,12 +18,16 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStyle,
     QSystemTrayIcon,
+    QTabWidget,
     QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from autostart import STARTUP_ARG, set_autostart
+from entries import EntryStore
+from entry_editor import EntryEditor
+from monthly_report import render_month
 from reminders import ReminderStore
 
 
@@ -31,6 +37,7 @@ class DiaryWindow(QMainWindow):
         self.setWindowTitle("Дневник")
         self.resize(640, 480)
         self.store = store
+        self.entries = EntryStore(store.path)
         self.minutes = set(store.load())
         self.last_checked = datetime.now().replace(second=0, microsecond=0)
         self.delivered: set[int] = set()
@@ -50,7 +57,21 @@ class DiaryWindow(QMainWindow):
         self.time_edit.timeChanged.connect(self.update_schedule_buttons)
         for widget in (self.schedule, self.time_edit, self.add_button, self.remove_button):
             layout.addWidget(widget)
-        self.setCentralWidget(panel)
+        tabs = QTabWidget(self)
+        calendar_panel = QWidget()
+        calendar_layout = QVBoxLayout(calendar_panel)
+        self.calendar = QCalendarWidget()
+        open_entry = QPushButton("Открыть запись за выбранную дату")
+        open_entry.clicked.connect(self.open_entry)
+        self.calendar.activated.connect(self.open_entry)
+        calendar_layout.addWidget(self.calendar)
+        calendar_layout.addWidget(open_entry)
+        export_report = QPushButton("Сохранить таблицу за открытый месяц")
+        export_report.clicked.connect(self.export_month)
+        calendar_layout.addWidget(export_report)
+        tabs.addTab(calendar_panel, "Дневник")
+        tabs.addTab(panel, "Напоминания")
+        self.setCentralWidget(tabs)
         self.refresh_schedule()
 
         if sys.platform == "win32":
@@ -101,6 +122,34 @@ class DiaryWindow(QMainWindow):
         self.settings.sync()
         with QSignalBlocker(self.autostart_checkbox):
             self.autostart_checkbox.setChecked(enabled)
+
+    def open_entry(self) -> None:
+        try:
+            editor = EntryEditor(self.entries, self.calendar.selectedDate().toPython(), self)
+        except DatabaseError:
+            QMessageBox.warning(self, "Запись", "Не удалось загрузить запись.")
+            return
+        editor.exec()
+        editor.deleteLater()
+
+    def export_month(self) -> None:
+        year, month = self.calendar.yearShown(), self.calendar.monthShown()
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить таблицу за месяц",
+            f"diary-{year:04d}-{month:02d}.html",
+            "HTML (*.html)",
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if not path.suffix:
+            path = path.with_suffix(".html")
+        try:
+            entries = self.entries.load_month(year, month)
+            path.write_text(render_month(year, month, entries), encoding="utf-8")
+        except (DatabaseError, OSError):
+            QMessageBox.warning(self, "Отчёт", "Не удалось сохранить таблицу.")
 
     def selected_minute(self) -> int:
         time = self.time_edit.time()
