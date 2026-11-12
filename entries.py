@@ -36,14 +36,17 @@ class EntryStore:
 
     def save(self, day: date, entry: Entry) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
-            db.execute("""
+            db.execute(
+                """
                 INSERT INTO diary_entries (day, feelings, methods, notes)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(day) DO UPDATE SET
                     feelings = excluded.feelings,
                     methods = excluded.methods,
                     notes = excluded.notes
-            """, (day.isoformat(), entry.feelings, entry.methods, entry.notes))
+            """,
+                (day.isoformat(), entry.feelings, entry.methods, entry.notes),
+            )
 
     def load_month(self, year: int, month: int) -> list[tuple[date, Entry]]:
         first = date(year, month, 1)

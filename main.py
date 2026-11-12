@@ -1,4 +1,5 @@
 import sys
+from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 from sqlite3 import Error as DatabaseError
@@ -32,7 +33,7 @@ from reminders import ReminderStore
 
 
 class DiaryWindow(QMainWindow):
-    def __init__(self, store: ReminderStore) -> None:
+    def __init__(self, store: ReminderStore, *, allow_autostart: bool = True) -> None:
         super().__init__()
         self.setWindowTitle("Дневник")
         self.resize(640, 480)
@@ -55,12 +56,20 @@ class DiaryWindow(QMainWindow):
         self.remove_button.clicked.connect(self.remove_reminder)
         self.schedule.currentItemChanged.connect(self.update_schedule_buttons)
         self.time_edit.timeChanged.connect(self.update_schedule_buttons)
-        for widget in (self.schedule, self.time_edit, self.add_button, self.remove_button):
+        for widget in (
+            self.schedule,
+            self.time_edit,
+            self.add_button,
+            self.remove_button,
+        ):
             layout.addWidget(widget)
         tabs = QTabWidget(self)
         calendar_panel = QWidget()
         calendar_layout = QVBoxLayout(calendar_panel)
         self.calendar = QCalendarWidget()
+        self.calendar.setVerticalHeaderFormat(
+            QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
+        )
         open_entry = QPushButton("Открыть запись за выбранную дату")
         open_entry.clicked.connect(self.open_entry)
         self.calendar.activated.connect(self.open_entry)
@@ -74,11 +83,13 @@ class DiaryWindow(QMainWindow):
         self.setCentralWidget(tabs)
         self.refresh_schedule()
 
-        if sys.platform == "win32":
+        if sys.platform == "win32" and allow_autostart:
             self.settings = QSettings("DesktopDiary", "DesktopDiary")
             self.autostart_checkbox = QCheckBox("Запускать дневник при входе в Windows")
             layout.addWidget(self.autostart_checkbox)
-            self.autostart_checkbox.setChecked(self.settings.value("autostart", False, type=bool))
+            self.autostart_checkbox.setChecked(
+                self.settings.value("autostart", False, type=bool)
+            )
             self.autostart_checkbox.toggled.connect(self.change_autostart)
 
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
@@ -116,7 +127,9 @@ class DiaryWindow(QMainWindow):
                 self.autostart_checkbox.setChecked(
                     self.settings.value("autostart", False, type=bool)
                 )
-            QMessageBox.warning(self, "Автозапуск", "Не удалось изменить автозапуск в Windows.")
+            QMessageBox.warning(
+                self, "Автозапуск", "Не удалось изменить автозапуск в Windows."
+            )
             return
         self.settings.setValue("autostart", enabled)
         self.settings.sync()
@@ -125,7 +138,9 @@ class DiaryWindow(QMainWindow):
 
     def open_entry(self) -> None:
         try:
-            editor = EntryEditor(self.entries, self.calendar.selectedDate().toPython(), self)
+            editor = EntryEditor(
+                self.entries, self.calendar.selectedDate().toPython(), self
+            )
         except DatabaseError:
             QMessageBox.warning(self, "Запись", "Не удалось загрузить запись.")
             return
@@ -215,21 +230,33 @@ class DiaryWindow(QMainWindow):
 
 
 def main() -> int:
-    started_at_logon = STARTUP_ARG in sys.argv[1:]
-    app = QApplication([arg for arg in sys.argv if arg != STARTUP_ARG])
+    parser = ArgumentParser(add_help=False)
+    parser.add_argument(STARTUP_ARG, action="store_true")
+    parser.add_argument("--data-dir", type=Path)
+    args, qt_args = parser.parse_known_args()
+    app = QApplication([sys.argv[0], *qt_args])
     app.setApplicationName("DesktopDiary")
-    data_dir = Path(
-        QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)
+    data_dir = args.data_dir or Path(
+        QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppLocalDataLocation
+        )
     )
     try:
-        window = DiaryWindow(ReminderStore(data_dir / "diary.sqlite3"))
+        window = DiaryWindow(
+            ReminderStore(data_dir / "diary.sqlite3"),
+            allow_autostart=args.data_dir is None,
+        )
     except (DatabaseError, OSError):
-        QMessageBox.critical(None, "Дневник", "Не удалось открыть локальную базу данных.")
+        QMessageBox.critical(
+            None, "Дневник", "Не удалось открыть локальную базу данных."
+        )
         return 1
-    if sys.platform == "win32" and not started_at_logon:
-        if not window.settings.contains("autostart"):
+    if sys.platform == "win32" and not args.autostart and args.data_dir is None:
+        if not window.settings.contains("autostart") or (
+            getattr(sys, "frozen", False) and window.autostart_checkbox.isChecked()
+        ):
             window.change_autostart(True)
-    if not started_at_logon or not window.tray.isVisible():
+    if not args.autostart or not window.tray.isVisible():
         window.show()
     return app.exec()
 

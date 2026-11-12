@@ -8,7 +8,9 @@ class ReminderStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         with closing(sqlite3.connect(path)) as db, db:
-            db.execute("CREATE TABLE IF NOT EXISTS reminder_times (minute INTEGER PRIMARY KEY)")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS reminder_times (minute INTEGER PRIMARY KEY)"
+            )
 
     def load(self) -> list[int]:
         with closing(sqlite3.connect(self.path)) as db:

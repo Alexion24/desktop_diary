@@ -9,7 +9,9 @@ def render_month(year: int, month: int, entries: list[tuple[date, Entry]]) -> st
     rows = []
     for day, entry in entries:
         cells = (f"{day:%d.%m.%Y}", entry.feelings, entry.methods, entry.notes)
-        rows.append("<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in cells) + "</tr>")
+        rows.append(
+            "<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in cells) + "</tr>"
+        )
     if not rows:
         rows.append('<tr><td colspan="4">За этот месяц записей нет.</td></tr>')
     body = "\n".join(rows)
